@@ -1,13 +1,12 @@
 // ================= CONFIGURATION =================
-// PASTE URL GAS BARU KAMU DISINI
-const API_URL = "https://script.google.com/macros/s/AKfycbz5JfXSYPLdZ4brYep0xNcy6OR8OJqNuMhYKcaCWbTij-LbxWIIkj0a-bNoVMhVkBnPmQ/exec";
-const WIB_OFFSET_MS = 5 * 60 * 60 * 1000; // Server Time + 5 Hours
+const API_URL = "https://script.google.com/macros/s/AKfycbz5JfXSYPLdZ4brYep0xNcy6OR8OJqNuMhYKcaCWbTij-LbxWIIkj0a-bNoVMhVkBnPmQ/exec"; // Ganti URL kamu
+const WIB_OFFSET_MS = 5 * 60 * 60 * 1000;
 
 // ================= STATE MANAGEMENT =================
 let globalData = { trades: [], transactions: [] };
 let processedTimeline = []; 
 let chartInstance = null;
-let currentFilter = 'all'; // Default All Time
+let currentFilter = 'all';
 
 // ================= INITIALIZATION =================
 document.addEventListener('DOMContentLoaded', () => {
@@ -18,42 +17,35 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ================= CORE LOGIC =================
 function processData(trades, transactions) {
-    // 1. Convert to unified timeline events
+    // 1. Convert to Unified Events
     const tradeEvents = trades.map(t => {
         const closeTime = new Date(t.closeTime);
         const wibTime = new Date(closeTime.getTime() + WIB_OFFSET_MS);
         
-        // Commision Calc: $10 per 1.0 lot
-        const commission = t.lots * 10;
-        const netProfitReal = parseFloat(t.netProfit); // This assumes Backend already stores Net
-        // Note: For display logic from Input, we will handle "Gross -> Net" in the form submit handler
-        
-        // Pips Logic
         let pips = 0;
         if (t.type === 'Buy') pips = (t.exitPrice - t.entryPrice) * 10;
         else if (t.type === 'Sell') pips = (t.entryPrice - t.exitPrice) * 10;
 
-        // Session Logic with Colors & Overlap
+        // Session Logic
         const h = wibTime.getHours();
         let session = "Pacific";
-        let sessionClass = "sess-pacific";
+        let sessionClass = "border-slate-500 bg-slate-900/50"; // Default
         
-        // Logic Overlap
-        if (h >= 19 && h <= 23) { session = "London + NY"; sessionClass = "sess-overlap"; }
-        else if (h >= 14 && h < 19) { session = "London"; sessionClass = "sess-london"; }
-        else if (h >= 7 && h < 14) { session = "Asia"; sessionClass = "sess-asia"; }
-        else if (h >= 0 && h < 4) { session = "New York"; sessionClass = "sess-ny"; } 
+        if (h >= 19 || h < 4) { session = "New York"; sessionClass = "border-blue-500 bg-blue-900/10"; }
+        else if (h >= 14) { session = "London"; sessionClass = "border-emerald-500 bg-emerald-900/10"; }
+        else if (h >= 7) { session = "Asia"; sessionClass = "border-yellow-500 bg-yellow-900/10"; }
 
         return {
             category: 'TRADE',
             id: t.id,
-            date: closeTime, // Sort key
+            date: closeTime,
             wibDate: wibTime,
             data: t,
-            val: netProfitReal,
-            pips: pips.toFixed(1),
+            val: parseFloat(t.netProfit),
+            pips: parseFloat(pips.toFixed(1)),
             session: session,
-            sessionClass: sessionClass
+            sessionClass: sessionClass,
+            isWin: parseFloat(t.netProfit) >= 0
         };
     });
 
@@ -68,170 +60,146 @@ function processData(trades, transactions) {
             wibDate: wibTime,
             data: t,
             val: t.type === 'Deposit' ? val : -val,
-            allocation: t.allocation // MAIN or TEMP
+            allocation: t.allocation
         };
     });
 
     // 2. Sort Chronologically
     const timeline = [...tradeEvents, ...transEvents].sort((a, b) => a.date - b.date);
 
-    // 3. Calculation Loop (Proportional Logic)
-    let mainBal = 0;
-    let tempBal = 0;
-    
-    // Helper to calculate growth per trade
-    let previousTotalBal = 0;
+    // 3. Calculation Loop (Proportional Logic & Cumulative Stats)
+    let mainBal = 0, tempBal = 0;
+    let mainNet = 0, tempNet = 0;
+    let totalDep = 0; 
 
     timeline.forEach(item => {
         const currentTotal = mainBal + tempBal;
-        item.startBal = currentTotal; // Saldo sebelum event ini terjadi
+        item.startBal = currentTotal;
         
         if (item.category === 'TRANSACTION') {
+            if (item.data.type === 'Deposit') totalDep += item.val;
+            
             if (item.data.allocation === 'MAIN') mainBal += item.val;
             else tempBal += item.val;
         } else {
-            // TRADE Logic: Distribute Profit/Loss based on Pocket Share
-            // Jika saldo total 0, masukkan ke Main default
-            let mainShare = 0;
-            let tempShare = 0;
+            // TRADE: Distribute based on share
+            let mainShare = currentTotal > 0 ? mainBal / currentTotal : 1;
+            let tempShare = currentTotal > 0 ? tempBal / currentTotal : 0;
+            if (currentTotal <= 0) { mainShare = 1; tempShare = 0; } // Fallback
 
-            if (currentTotal > 0) {
-                mainShare = mainBal / currentTotal;
-                tempShare = tempBal / currentTotal;
-            } else {
-                // Fallback jika saldo 0 atau minus, anggap 100% Main
-                mainShare = 1; 
-            }
+            const profitMain = item.val * mainShare;
+            const profitTemp = item.val * tempShare;
 
-            // Distribute
-            mainBal += item.val * mainShare;
-            tempBal += item.val * tempShare;
+            mainBal += profitMain;
+            tempBal += profitTemp;
+            
+            mainNet += profitMain;
+            tempNet += profitTemp;
         }
 
         item.runningMain = mainBal;
         item.runningTemp = tempBal;
         item.runningTotal = mainBal + tempBal;
-        
-        // Growth % for this specific item (vs previous balance)
-        item.growth = item.startBal > 0 ? ((item.runningTotal - item.startBal) / item.startBal) * 100 : 0;
+        item.cumulativeMainNet = mainNet;
+        item.cumulativeTempNet = tempNet;
+        item.cumulativeTotalDep = totalDep;
     });
 
     processedTimeline = timeline;
-    
-    // Update UI
     setupMonthFilter();
     applyGlobalFilter();
 }
 
-// ================= FILTERING LOGIC =================
 function applyGlobalFilter() {
     const filterVal = document.getElementById('globalFilter').value;
     currentFilter = filterVal;
 
     let filteredData = [];
-    let startMain = 0;
-    let startTemp = 0;
+    let startMain = 0, startTemp = 0, startDep = 0, startMainNet = 0, startTempNet = 0;
 
     if (filterVal === 'all') {
         filteredData = processedTimeline;
     } else {
-        // Filter by Month (YYYY-MM)
-        // Cari index data pertama di bulan ini
         const firstIndex = processedTimeline.findIndex(d => d.wibDate.toISOString().slice(0, 7) === filterVal);
-        
         if (firstIndex >= 0) {
             filteredData = processedTimeline.slice(firstIndex);
-            // Saldo awal adalah saldo AKHIR dari item SEBELUM index pertama bulan ini
             if (firstIndex > 0) {
-                startMain = processedTimeline[firstIndex - 1].runningMain;
-                startTemp = processedTimeline[firstIndex - 1].runningTemp;
-            }
-        } else {
-            // Tidak ada data di bulan ini, tapi mungkin ada saldo dari bulan lalu
-            // Cari data terakhir sebelum bulan ini
-            const prevData = processedTimeline.filter(d => d.wibDate.toISOString().slice(0, 7) < filterVal);
-            if (prevData.length > 0) {
-                const last = prevData[prevData.length - 1];
-                startMain = last.runningMain;
-                startTemp = last.runningTemp;
+                const prev = processedTimeline[firstIndex - 1];
+                startMain = prev.runningMain;
+                startTemp = prev.runningTemp;
+                startDep = prev.cumulativeTotalDep;
+                startMainNet = prev.cumulativeMainNet;
+                startTempNet = prev.cumulativeTempNet;
             }
         }
     }
 
-    // Update All Views
-    updateDashboard(filteredData, startMain, startTemp);
+    updateDashboard(filteredData, startMain, startTemp, startDep, startMainNet, startTempNet);
     updateReport(filteredData);
     renderHistory(filteredData);
 }
 
-// ================= UI UPDATES: DASHBOARD =================
-function updateDashboard(data, startMain, startTemp) {
-    let lastItem = data.length > 0 ? data[data.length - 1] : { runningMain: startMain, runningTemp: startTemp, runningTotal: startMain + startTemp };
+// ================= DASHBOARD =================
+function updateDashboard(data, startMain, startTemp, startDep, startMainNet, startTempNet) {
+    if (data.length === 0) return;
+    const last = data[data.length - 1];
+
+    // Balance
+    setText('totalEquity', formatCurrency(last.runningTotal));
+    setText('mainBalance', formatCurrency(last.runningMain));
+    setText('tempBalance', formatCurrency(last.runningTemp));
     
-    // Balance Cards
-    document.getElementById('totalEquity').innerText = formatCurrency(lastItem.runningTotal);
-    document.getElementById('mainBalance').innerText = formatCurrency(lastItem.runningMain);
-    document.getElementById('tempBalance').innerText = formatCurrency(lastItem.runningTemp);
+    // Net Profit Split (Current Period)
+    const currentMainNet = last.cumulativeMainNet - startMainNet;
+    const currentTempNet = last.cumulativeTempNet - startTempNet;
+    setText('mainNetProfit', (currentMainNet>=0?'+':'')+formatCurrency(currentMainNet));
+    setText('tempNetProfit', (currentTempNet>=0?'+':'')+formatCurrency(currentTempNet));
 
-    // Shares %
-    const total = lastItem.runningTotal || 1; // avoid div by 0
-    document.getElementById('mainShare').innerText = ((lastItem.runningMain / total) * 100).toFixed(1) + "% share";
-    document.getElementById('tempShare').innerText = ((lastItem.runningTemp / total) * 100).toFixed(1) + "% share";
-
-    // Growth Badge (Current Period vs Start of Period)
+    // Growth Fix: (Current Equity - Total Deposit) / Total Deposit * 100
+    // For specific period: (EndEquity - StartEquity) / StartEquity * 100
+    let growth = 0;
     const startTotal = startMain + startTemp;
-    const growth = startTotal > 0 ? ((lastItem.runningTotal - startTotal) / startTotal) * 100 : 0;
+    
+    if (currentFilter === 'all') {
+        const totalDep = last.cumulativeTotalDep;
+        if (totalDep > 0) growth = ((last.runningTotal - totalDep) / totalDep) * 100;
+    } else {
+         if (startTotal > 0) growth = ((last.runningTotal - startTotal) / startTotal) * 100;
+    }
+
     const badge = document.getElementById('growthBadge');
     badge.innerText = (growth >= 0 ? "+" : "") + growth.toFixed(2) + "%";
     badge.className = `text-[10px] px-2 py-0.5 rounded font-mono ${growth >= 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`;
 
-    // Quick Stats (Dashboard)
-    const tradesOnly = data.filter(d => d.category === 'TRADE');
-    const wins = tradesOnly.filter(d => d.val > 0).length;
-    const winRate = tradesOnly.length > 0 ? (wins / tradesOnly.length) * 100 : 0;
-    const netProfit = tradesOnly.reduce((sum, t) => sum + t.val, 0);
-
-    // Drawdown Calculation (Simple Peak-to-Valley for period)
-    let peak = startTotal;
-    let maxDD = 0;
-    // Kita harus iterasi data + saldo awal
-    let running = startTotal;
-    data.forEach(d => {
-        if (d.category === 'TRANSACTION') {
-            if(d.data.allocation === 'MAIN') running += d.val; // Simplified for total
-            else running += d.val;
-        } else {
-            running += d.val;
-        }
-        if (running > peak) peak = running;
-        const dd = peak > 0 ? ((peak - running) / peak) * 100 : 0;
-        if (dd > maxDD) maxDD = dd;
-    });
-
-    document.getElementById('dashNetProfit').innerText = formatCurrency(netProfit);
-    document.getElementById('dashNetProfit').className = `text-sm font-bold mt-1 ${netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`;
-    document.getElementById('dashWinRate').innerText = winRate.toFixed(1) + "%";
-    document.getElementById('dashDrawdown').innerText = maxDD.toFixed(1) + "%";
-
-    // Chart
     renderChart(data, startMain, startTemp);
 }
 
-// ================= UI UPDATES: CHART =================
 function renderChart(data, startMain, startTemp) {
     const ctx = document.getElementById('equityChart').getContext('2d');
     if (chartInstance) chartInstance.destroy();
 
-    // Prepare Datapoints
-    // Point 0: Start of Period
     let labels = ["Start"];
     let dataMain = [startMain];
     let dataTemp = [startTemp];
+    let pointColors = ['transparent'];
+    let pointRadii = [0];
 
     data.forEach(d => {
-        labels.push(d.wibDate.getDate()); // Just day number to save space
+        // Date Label logic
+        const dateStr = d.wibDate.toLocaleDateString('id-ID', {day: 'numeric', month: 'short', year: '2-digit'});
+        labels.push(dateStr);
         dataMain.push(d.runningMain);
         dataTemp.push(d.runningTemp);
+
+        // Point Logic (Markers)
+        if (d.category === 'TRANSACTION') {
+            pointRadii.push(4);
+            if (d.data.type === 'Deposit') pointColors.push('#3b82f6'); // Blue
+            else pointColors.push('#facc15'); // Yellow
+        } else {
+            pointRadii.push(0); // Hide trade points to keep clean
+            pointColors.push('transparent');
+        }
     });
 
     chartInstance = new Chart(ctx, {
@@ -240,175 +208,277 @@ function renderChart(data, startMain, startTemp) {
             labels: labels,
             datasets: [
                 {
-                    label: 'Main',
+                    label: 'Main Pocket',
                     data: dataMain,
-                    borderColor: '#10b981',
-                    backgroundColor: 'rgba(16, 185, 129, 0.5)',
+                    borderColor: '#10b981', // Emerald
+                    backgroundColor: 'rgba(16, 185, 129, 0.2)',
                     fill: 'origin',
                     tension: 0.1,
-                    pointRadius: 1
+                    pointRadius: pointRadii,
+                    pointBackgroundColor: pointColors,
+                    pointBorderColor: '#fff'
                 },
                 {
-                    label: 'Temp',
+                    label: 'Temp Pocket',
                     data: dataTemp,
-                    borderColor: '#f59e0b',
-                    backgroundColor: 'rgba(245, 158, 11, 0.5)',
-                    fill: '-1', // Fill to previous dataset (Stacked Area effect)
+                    borderColor: '#ffffff', // White
+                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                    fill: '-1', 
                     tension: 0.1,
-                    pointRadius: 1
+                    pointRadius: 0 // Temp doesn't show transaction dots
                 }
             ]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
+            plugins: {
+                tooltip: {
+                    mode: 'index',
+                    intersect: false,
+                    callbacks: {
+                        label: function(context) {
+                            let label = context.dataset.label || '';
+                            if (label) label += ': ';
+                            if (context.parsed.y !== null) label += formatCurrency(context.parsed.y);
+                            return label;
+                        },
+                        footer: function(tooltipItems) {
+                            let sum = 0;
+                            tooltipItems.forEach(function(tooltipItem) {
+                                sum += tooltipItem.parsed.y;
+                            });
+                            return 'Total Equity: ' + formatCurrency(sum);
+                        }
+                    }
+                },
+                legend: { display: false }
+            },
             scales: {
                 x: { display: false },
-                y: { grid: { color: '#334155' }, ticks: { color: '#94a3b8', font: {size: 9} }, stacked: true }
-            },
-            interaction: { mode: 'index', intersect: false }
+                y: { display: true, grid: {color: '#334155'}, ticks: {color: '#94a3b8'} }
+            }
         }
     });
 }
 
-// ================= UI UPDATES: REPORT (MQL5 Style) =================
+// ================= ADVANCED REPORT =================
 function updateReport(data) {
     const trades = data.filter(d => d.category === 'TRADE');
     const trans = data.filter(d => d.category === 'TRANSACTION');
 
-    // Basic Stats
-    const totalTrades = trades.length;
-    const wins = trades.filter(d => d.val > 0);
-    const losses = trades.filter(d => d.val < 0);
+    // 1. Financials
+    const totalDep = trans.filter(t => t.data.type === 'Deposit').reduce((a,b)=>a+b.val,0);
+    const totalWith = trans.filter(t => t.data.type === 'Withdraw').reduce((a,b)=>a+Math.abs(b.val),0);
+    const netProfit = trades.reduce((a,b)=>a+b.val,0);
     
-    const grossProfit = wins.reduce((sum, t) => sum + t.val, 0);
-    const grossLoss = losses.reduce((sum, t) => sum + t.val, 0); // Negative value
-    
-    const profitFactor = Math.abs(grossLoss) > 0 ? (grossProfit / Math.abs(grossLoss)).toFixed(2) : "∞";
-    const expPayoff = totalTrades > 0 ? ((grossProfit + grossLoss) / totalTrades).toFixed(2) : "0.00";
+    // Growth (Simple ROI for selected period)
+    const growth = totalDep > 0 ? (netProfit / totalDep) * 100 : 0;
 
-    // Consecutives
-    let maxConsWin = 0, currConsWin = 0;
-    let maxConsLoss = 0, currConsLoss = 0;
-    trades.forEach(t => {
-        if (t.val > 0) {
-            currConsWin++;
-            currConsLoss = 0;
-            if (currConsWin > maxConsWin) maxConsWin = currConsWin;
-        } else {
-            currConsLoss++;
-            currConsWin = 0;
-            if (currConsLoss > maxConsLoss) maxConsLoss = currConsLoss;
-        }
-    });
-
-    // Averages
-    const avgWin = wins.length > 0 ? grossProfit / wins.length : 0;
-    const avgLoss = losses.length > 0 ? grossLoss / losses.length : 0;
-
-    // Deposits
-    const deps = trans.filter(t => t.data.type === 'Deposit');
-    const withs = trans.filter(t => t.data.type === 'Withdraw');
-    const totalDep = deps.reduce((sum, t) => sum + t.val, 0);
-    const totalWith = withs.reduce((sum, t) => sum + Math.abs(t.val), 0);
-    
-    const depMain = deps.filter(t => t.data.allocation === 'MAIN').reduce((sum, t) => sum + t.val, 0);
-    const depTemp = deps.filter(t => t.data.allocation === 'TEMP').reduce((sum, t) => sum + t.val, 0);
-
-    // DOM Updates
     setText('rptTotalDeposit', formatCurrency(totalDep));
     setText('rptTotalWithdraw', formatCurrency(totalWith));
-    setText('rptProfitFactor', profitFactor);
-    setText('rptExpectedPayoff', expPayoff);
-    setText('rptTotalTrades', totalTrades);
-    setText('rptGrossProfit', formatCurrency(grossProfit));
-    setText('rptGrossLoss', formatCurrency(grossLoss));
-    setText('rptMaxConsecWins', maxConsWin);
-    setText('rptMaxConsecLosses', maxConsLoss);
-    setText('rptAvgWin', formatCurrency(avgWin));
-    setText('rptAvgLoss', formatCurrency(avgLoss));
+    setText('rptNetProfit', formatCurrency(netProfit));
+    setText('rptGrowth', (growth>=0?'+':'')+growth.toFixed(2)+'%');
 
-    // Bars
-    setText('rptMainDep', formatCurrency(depMain));
-    setText('rptTempDep', formatCurrency(depTemp));
+    // Withdraw Allocation
+    const mainWD = trans.filter(t => t.data.type === 'Withdraw' && t.data.allocation === 'MAIN').reduce((a,b)=>a+Math.abs(b.val),0);
+    const tempWD = trans.filter(t => t.data.type === 'Withdraw' && t.data.allocation === 'TEMP').reduce((a,b)=>a+Math.abs(b.val),0);
     
-    const totalDepSafe = totalDep || 1;
-    document.getElementById('barMainDep').style.width = (depMain / totalDepSafe * 100) + "%";
-    document.getElementById('barTempDep').style.width = (depTemp / totalDepSafe * 100) + "%";
+    setText('rptMainWD', formatCurrency(mainWD));
+    setText('rptTempWD', formatCurrency(tempWD));
+    const safeWith = totalWith || 1;
+    document.getElementById('barMainWD').style.width = (mainWD / safeWith * 100) + "%";
+    document.getElementById('barTempWD').style.width = (tempWD / safeWith * 100) + "%";
+
+    // 2. Directional
+    const longTrades = trades.filter(t => t.data.type === 'Buy');
+    const shortTrades = trades.filter(t => t.data.type === 'Sell');
+    
+    const longWin = longTrades.filter(t=>t.val>0).length;
+    const shortWin = shortTrades.filter(t=>t.val>0).length;
+
+    setText('longCount', longTrades.length + ' Trades');
+    setText('shortCount', shortTrades.length + ' Trades');
+    setText('longWinRate', (longTrades.length ? (longWin/longTrades.length*100).toFixed(1) : 0) + '%');
+    setText('shortWinRate', (shortTrades.length ? (shortWin/shortTrades.length*100).toFixed(1) : 0) + '%');
+
+    // 3. Best & Worst Records
+    if (trades.length > 0) {
+        // Sort copies
+        const sortedByProfit = [...trades].sort((a,b) => b.val - a.val);
+        const sortedByPips = [...trades].sort((a,b) => b.pips - a.pips);
+
+        const bestUSD = sortedByProfit[0];
+        const worstUSD = sortedByProfit[sortedByProfit.length-1];
+        const bestPips = sortedByPips[0];
+        const worstPips = sortedByPips[sortedByPips.length-1];
+
+        const bestHTML = `
+            ${renderMiniCard(bestUSD, 'Highest Profit', 'text-emerald-400')}
+            ${renderMiniCard(bestPips, 'Highest Pips', 'text-emerald-400', true)}
+        `;
+        const worstHTML = `
+            ${renderMiniCard(worstUSD, 'Max Drawdown (USD)', 'text-rose-400')}
+            ${renderMiniCard(worstPips, 'Max Drawdown (Pips)', 'text-rose-400', true)}
+        `;
+        
+        document.getElementById('bestRecordsList').innerHTML = bestHTML;
+        document.getElementById('worstRecordsList').innerHTML = worstHTML;
+    }
 }
 
-// ================= UI UPDATES: HISTORY =================
+function renderMiniCard(item, label, colorClass, isPips = false) {
+    if (!item) return '';
+    const valDisplay = isPips ? item.pips + ' pips' : formatCurrency(item.val);
+    return `
+    <div class="bg-slate-800 p-2 rounded-lg flex justify-between items-center text-xs border border-slate-700 mb-1" onclick="openEditModal('${item.id}')">
+        <div>
+            <p class="text-[9px] text-slate-500 uppercase">${label}</p>
+            <p class="font-bold text-white">${item.data.type} ${item.data.lots} Lot</p>
+        </div>
+        <div class="text-right">
+            <p class="font-bold ${colorClass}">${valDisplay}</p>
+            <p class="text-[9px] text-slate-500">${item.wibDate.toLocaleDateString()}</p>
+        </div>
+    </div>`;
+}
+
+// ================= HISTORY =================
 function renderHistory(data) {
     const list = document.getElementById('historyList');
     list.innerHTML = '';
-    
-    // Reverse for display (Newest top)
     const reversed = [...data].reverse();
-
-    if(reversed.length === 0) {
-        list.innerHTML = '<div class="text-center text-slate-500 py-10 text-xs">No records found.</div>';
-        return;
-    }
 
     reversed.forEach(item => {
         const el = document.createElement('div');
-        
+        el.onclick = () => openEditModal(item.id); // Click handler
+        el.className = "cursor-pointer active:scale-95 transition-transform";
+
         if (item.category === 'TRADE') {
             const isWin = item.val >= 0;
-            const growthSign = item.growth >= 0 ? "+" : "";
-            
-            // Session Color from Item logic
-            el.className = `relative overflow-hidden rounded-r-xl border-l-4 shadow-sm flex justify-between items-center p-3 mb-2 ${item.sessionClass}`;
-            
+            // Border left color based on Win/Loss for quick scanning
             el.innerHTML = `
+            <div class="bg-slate-800 rounded-lg p-3 border-l-4 ${isWin ? 'border-emerald-500' : 'border-rose-500'} shadow-sm flex justify-between items-center relative overflow-hidden">
+                <div class="absolute right-0 top-0 p-1 opacity-10 text-4xl font-bold">${item.data.type[0]}</div>
                 <div>
                     <div class="flex items-center gap-2 mb-1">
                         <span class="font-bold text-white text-sm">${item.data.type.toUpperCase()}</span>
-                        <span class="text-[10px] text-slate-400 bg-slate-800 px-1.5 rounded">${item.data.lots} Lot</span>
-                        <span class="text-[9px] px-1.5 rounded bg-slate-800 text-slate-300 border border-slate-700">${item.session}</span>
+                        <span class="text-[10px] text-slate-400 bg-slate-900 px-1.5 rounded">${item.data.lots} Lot</span>
+                        <span class="text-[9px] px-1.5 rounded ${item.sessionClass}">${item.session}</span>
                     </div>
-                    <div class="text-[10px] text-slate-400 font-mono flex gap-2">
-                        <span>Close: ${item.wibDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                        <span class="text-slate-600">|</span>
-                        <span>${item.wibDate.toLocaleDateString()}</span>
+                    <div class="text-[10px] text-slate-500 font-mono">
+                        ${item.wibDate.toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})} WIB | ${item.wibDate.toLocaleDateString()}
                     </div>
                 </div>
-                <div class="text-right">
+                <div class="text-right z-10">
                     <div class="font-bold text-base ${isWin ? 'text-emerald-400' : 'text-rose-400'}">
                         ${isWin ? '+' : ''}$${item.val.toFixed(2)}
                     </div>
-                    <div class="flex flex-col items-end">
-                        <span class="text-[9px] text-slate-500">${item.pips} pips</span>
-                        <span class="text-[9px] font-mono ${item.growth >= 0 ? 'text-emerald-600' : 'text-rose-600'}">${growthSign}${item.growth.toFixed(2)}%</span>
-                    </div>
+                    <div class="text-[9px] text-slate-400">${item.pips} pips</div>
                 </div>
-            `;
+            </div>`;
         } else {
-            el.className = `relative overflow-hidden rounded-xl bg-slate-900 border border-slate-800 p-3 mb-2 flex justify-between items-center`;
+            // Transaction
+            const isDep = item.data.type === 'Deposit';
             el.innerHTML = `
+            <div class="bg-slate-800 rounded-lg p-3 border-l-4 ${isDep ? 'border-blue-500' : 'border-yellow-500'} shadow-sm flex justify-between items-center">
                 <div>
                     <div class="flex items-center gap-2 mb-1">
-                        <span class="font-bold ${item.val > 0 ? 'text-blue-400' : 'text-amber-500'} text-xs">${item.data.type.toUpperCase()}</span>
+                        <span class="font-bold ${isDep ? 'text-blue-400' : 'text-yellow-400'} text-xs">${item.data.type.toUpperCase()}</span>
                         <span class="text-[9px] px-1.5 py-0.5 rounded border border-slate-700 text-slate-500 font-bold">${item.allocation}</span>
                     </div>
-                    <div class="text-[10px] text-slate-500">${item.wibDate.toLocaleDateString()}</div>
+                    <div class="text-[10px] text-slate-500">
+                        ${item.wibDate.toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})} WIB | ${item.wibDate.toLocaleDateString()}
+                    </div>
                 </div>
                 <div class="text-right">
                     <div class="font-bold text-sm text-white">$${Math.abs(item.val).toFixed(2)}</div>
                 </div>
-            `;
+            </div>`;
         }
         list.appendChild(el);
     });
 }
 
+// ================= MODAL LOGIC =================
+function openEditModal(id) {
+    const item = processedTimeline.find(d => d.id === id);
+    if (!item) return;
+
+    document.getElementById('deleteId').value = id;
+    document.getElementById('deleteType').value = item.category;
+    
+    // Simple Detail Show
+    const detail = item.category === 'TRADE' 
+        ? `${item.data.type} ${item.data.lots} Lot ($${item.val})` 
+        : `${item.data.type} $${Math.abs(item.val)} (${item.data.allocation})`;
+    
+    document.getElementById('modalDetail').innerText = detail;
+
+    const modal = document.getElementById('modalEdit');
+    modal.classList.remove('opacity-0', 'pointer-events-none');
+    document.body.classList.add('modal-active');
+}
+
+function closeModal() {
+    const modal = document.getElementById('modalEdit');
+    modal.classList.add('opacity-0', 'pointer-events-none');
+    document.body.classList.remove('modal-active');
+}
+
+function deleteRecord() {
+    if(!confirm("Are you sure you want to delete this record?")) return;
+    
+    const id = document.getElementById('deleteId').value;
+    const type = document.getElementById('deleteType').value;
+    const action = type === 'TRADE' ? 'deleteTrade' : 'deleteTransaction';
+    
+    submitData(action, { id: id });
+}
+
+
 // ================= HELPERS & SETUP =================
+function initClock() {
+    const update = () => {
+        const now = new Date(); 
+        const h = now.getHours();
+        const m = now.getMinutes().toString().padStart(2, '0');
+        const s = now.getSeconds().toString().padStart(2, '0');
+        document.getElementById('clock').innerText = `${h}:${m}:${s} WIB`;
+        
+        let greet = h < 12 ? "Good Morning" : h < 18 ? "Good Afternoon" : "Good Evening";
+        document.getElementById('greeting').innerText = greet + ", Hanzel";
+        
+        renderSessionTicker(h);
+    };
+    setInterval(update, 1000);
+    update();
+}
+
+function renderSessionTicker(h) {
+    const sessions = [
+        { name: "PACIFIC", start: 4, end: 13, color: "text-slate-400" },
+        { name: "ASIA", start: 7, end: 16, color: "text-yellow-400" },
+        { name: "LONDON", start: 14, end: 23, color: "text-emerald-400" },
+        { name: "NEW YORK", start: 19, end: 28, color: "text-blue-400" }
+    ];
+
+    let html = "";
+    sessions.forEach(s => {
+        let isActive = (s.name === "NEW YORK") ? (h >= 19 || h < 4) : (h >= s.start && h < s.end);
+        html += `
+            <div class="px-2 py-1 rounded border ${isActive ? 'bg-slate-800 border-slate-600' : 'border-transparent opacity-30'} flex items-center gap-1 min-w-max">
+                <div class="w-1.5 h-1.5 rounded-full ${isActive ? 'bg-current animate-pulse' : 'bg-slate-600'} ${s.color}"></div>
+                <span class="text-[9px] font-bold ${s.color}">${s.name}</span>
+            </div>
+        `;
+    });
+    document.getElementById('sessionTicker').innerHTML = html;
+}
+
 function setupMonthFilter() {
     const select = document.getElementById('globalFilter');
     const existingVal = select.value;
-    
-    // Get Unique Months from all data
     const months = [...new Set(processedTimeline.map(d => d.wibDate.toISOString().slice(0, 7)))].sort().reverse();
     
     select.innerHTML = '<option value="all">ALL TIME</option>';
@@ -418,135 +488,13 @@ function setupMonthFilter() {
         select.innerHTML += `<option value="${m}">${label}</option>`;
     });
 
-    select.value = existingVal; // Restore selection if refreshed
+    select.value = existingVal;
     select.onchange = applyGlobalFilter;
 }
 
-function initClock() {
-    setInterval(() => {
-        const now = new Date(); 
-        // Display as WIB (Assume user device is correct or offset needed. Simple approach: Show system time labeled as WIB)
-        const h = now.getHours();
-        const m = now.getMinutes().toString().padStart(2, '0');
-        const s = now.getSeconds().toString().padStart(2, '0');
-        document.getElementById('clock').innerText = `${h}:${m}:${s} WIB`;
-        
-        // Session Ticker Update
-        renderSessionTicker(h);
-    }, 1000);
-}
-
-function renderSessionTicker(h) {
-    // Pacific 4-13, Asia 7-16, London 14-23, NY 19-4
-    const sessions = [
-        { name: "PACIFIC", start: 4, end: 13, color: "text-slate-400" },
-        { name: "ASIA", start: 7, end: 16, color: "text-yellow-400" },
-        { name: "LONDON", start: 14, end: 23, color: "text-green-400" },
-        { name: "NEW YORK", start: 19, end: 28, color: "text-blue-400" } // 28 = 04 next day logic handled below
-    ];
-
-    let html = "";
-    sessions.forEach(s => {
-        let isActive = false;
-        // Handle NY crossing midnight
-        if (s.name === "NEW YORK") {
-            if (h >= 19 || h < 4) isActive = true;
-        } else {
-            if (h >= s.start && h < s.end) isActive = true;
-        }
-
-        html += `
-            <div class="px-2 py-1 rounded border ${isActive ? 'bg-slate-800 border-slate-600' : 'border-transparent opacity-30'} flex items-center gap-1">
-                <div class="w-1.5 h-1.5 rounded-full ${isActive ? 'bg-current animate-pulse' : 'bg-slate-600'} ${s.color}"></div>
-                <span class="text-[9px] font-bold ${s.color}">${s.name}</span>
-            </div>
-        `;
-    });
-    document.getElementById('sessionTicker').innerHTML = html;
-}
-
-// Calculator for Input Form
-function setupInputs() {
-    const lotsInput = document.getElementById('inputLots');
-    const grossInput = document.getElementById('inputGross');
-    const calcDisplay = document.getElementById('calcCommission');
-
-    function updateCalc() {
-        const lots = parseFloat(lotsInput.value) || 0;
-        const gross = parseFloat(grossInput.value) || 0;
-        const comm = lots * 10;
-        const net = gross - comm;
-        
-        calcDisplay.innerHTML = `Comm: <b>$${comm.toFixed(2)}</b> | Net: <b class="${net >=0 ? 'text-emerald-400':'text-rose-400'}">$${net.toFixed(2)}</b>`;
-    }
-
-    lotsInput.addEventListener('input', updateCalc);
-    grossInput.addEventListener('input', updateCalc);
-
-    // Override Submit for Trades to Calculate Net
-    document.getElementById('form-trade').addEventListener('submit', (e) => {
-        e.preventDefault();
-        const fd = new FormData(e.target);
-        const data = Object.fromEntries(fd.entries());
-        
-        // Manual Calc Net Profit
-        const lots = parseFloat(data.lots);
-        const gross = parseFloat(data.netProfit); // Input name is still netProfit in HTML to match older structure, but treated as Gross visually
-        const comm = lots * 10;
-        data.netProfit = (gross - comm).toFixed(2); // Send NET to Backend
-
-        submitData('addTrade', data);
-    });
-
-    document.getElementById('form-transaction').addEventListener('submit', (e) => {
-        e.preventDefault();
-        const fd = new FormData(e.target);
-        const data = Object.fromEntries(fd.entries());
-        submitData('addTransaction', data);
-    });
-}
-
-// ================= API CALLS =================
-async function fetchData() {
-    try {
-        const res = await fetch(`${API_URL}?action=getData`);
-        const json = await res.json();
-        if (json.status === 'success') {
-            globalData = json.data;
-            processData(globalData.trades, globalData.transactions);
-        }
-    } catch (e) {
-        console.error(e);
-        alert("Connection Error");
-    }
-}
-
-async function submitData(action, payload) {
-    try {
-        payload.id = 'ID-' + Date.now();
-        payload.action = action;
-        
-        const btn = document.querySelector('button[type="submit"]');
-        btn.disabled = true;
-        btn.innerText = "Processing...";
-
-        await fetch(API_URL, {
-            method: 'POST',
-            body: JSON.stringify(payload)
-        });
-
-        location.reload();
-    } catch (e) {
-        alert("Error: " + e);
-        location.reload();
-    }
-}
-
-// ================= UTILS =================
 function switchView(view) {
     document.querySelectorAll('section').forEach(el => el.classList.add('hidden'));
     document.getElementById(`view-${view}`).classList.remove('hidden');
-    
     document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active', 'text-sky-400'));
     const activeBtn = document.querySelector(`.nav-btn[onclick="switchView('${view}')"]`);
     if(activeBtn) {
@@ -559,21 +507,70 @@ function switchForm(type) {
     document.getElementById('form-trade').classList.add('hidden');
     document.getElementById('form-transaction').classList.add('hidden');
     document.getElementById('form-'+type).classList.remove('hidden');
-    
-    document.getElementById('tab-trade').className = type === 'trade' 
-        ? "flex-1 py-2 text-sm font-bold rounded-lg bg-sky-600 text-white shadow-lg transition-all"
-        : "flex-1 py-2 text-sm font-bold rounded-lg text-slate-400 transition-all";
+    document.getElementById('tab-trade').className = type === 'trade' ? "flex-1 py-2 text-sm font-bold rounded-lg bg-sky-600 text-white shadow-lg transition-all" : "flex-1 py-2 text-sm font-bold rounded-lg text-slate-400 transition-all";
+    document.getElementById('tab-transaction').className = type === 'transaction' ? "flex-1 py-2 text-sm font-bold rounded-lg bg-amber-600 text-white shadow-lg transition-all" : "flex-1 py-2 text-sm font-bold rounded-lg text-slate-400 transition-all";
+}
+
+function setupInputs() {
+    const lotsInput = document.getElementById('inputLots');
+    const grossInput = document.getElementById('inputGross');
+    const calcDisplay = document.getElementById('calcCommission');
+
+    function updateCalc() {
+        const lots = parseFloat(lotsInput.value) || 0;
+        const gross = parseFloat(grossInput.value) || 0;
+        const comm = lots * 10;
+        const net = gross - comm;
+        calcDisplay.innerHTML = `Comm: <b>$${comm.toFixed(2)}</b> | Net: <b class="${net >=0 ? 'text-emerald-400':'text-rose-400'}">$${net.toFixed(2)}</b>`;
+    }
+    if(lotsInput && grossInput) {
+        lotsInput.addEventListener('input', updateCalc);
+        grossInput.addEventListener('input', updateCalc);
+    }
+
+    document.getElementById('form-trade').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const data = Object.fromEntries(fd.entries());
+        const lots = parseFloat(data.lots);
+        const gross = parseFloat(data.netProfit);
+        const comm = lots * 10;
+        data.netProfit = (gross - comm).toFixed(2);
+        submitData('addTrade', data);
+    });
+
+    document.getElementById('form-transaction').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const data = Object.fromEntries(fd.entries());
+        submitData('addTransaction', data);
+    });
+}
+
+function setText(id, val) { const el = document.getElementById(id); if(el) el.innerText = val; }
+function formatCurrency(num) { return '$' + num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+async function fetchData() {
+    try {
+        const res = await fetch(`${API_URL}?action=getData`);
+        const json = await res.json();
+        if (json.status === 'success') {
+            globalData = json.data;
+            processData(globalData.trades, globalData.transactions);
+        }
+    } catch (e) { console.error(e); }
+}
+
+async function submitData(action, payload) {
+    try {
+        if (!payload.id) payload.id = 'ID-' + Date.now();
+        payload.action = action;
         
-    document.getElementById('tab-transaction').className = type === 'transaction'
-        ? "flex-1 py-2 text-sm font-bold rounded-lg bg-amber-600 text-white shadow-lg transition-all"
-        : "flex-1 py-2 text-sm font-bold rounded-lg text-slate-400 transition-all";
-}
+        // Visual Feedback only if button exists (delete might not have generic btn)
+        const btn = document.querySelector('button[type="submit"]');
+        if(btn) { btn.disabled = true; btn.innerText = "Processing..."; }
 
-function setText(id, val) {
-    const el = document.getElementById(id);
-    if(el) el.innerText = val;
-}
-
-function formatCurrency(num) {
-    return '$' + num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
+        location.reload();
+    } catch (e) { alert("Error: " + e); location.reload(); }
 }
