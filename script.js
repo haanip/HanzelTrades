@@ -7,7 +7,7 @@ let globalData = { trades: [], transactions: [] };
 let processedTimeline = []; 
 let chartInstance = null;
 let currentFilter = 'all';
-let editingId = null; // Track what we are editing
+let editingId = null; 
 
 // ================= INIT =================
 document.addEventListener('DOMContentLoaded', () => {
@@ -16,7 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupInputs();
 });
 
-// ================= LOGIC =================
+// ================= PROCESS DATA =================
 function processData(trades, transactions) {
     // 1. Unified Events
     const tradeEvents = trades.map(t => {
@@ -60,12 +60,10 @@ function processData(trades, transactions) {
         };
     });
 
-    // 2. Sort
     const timeline = [...tradeEvents, ...transEvents].sort((a, b) => a.date - b.date);
 
-    // 3. Calc
+    // 2. Main Calculation (Chronological)
     let mainBal = 0, tempBal = 0;
-    let mainNet = 0, tempNet = 0;
     let totalDep = 0;
 
     timeline.forEach(item => {
@@ -77,7 +75,7 @@ function processData(trades, transactions) {
             if (item.data.allocation === 'MAIN') mainBal += item.val;
             else tempBal += item.val;
         } else {
-            // TRADE Split
+            // Profit Allocation Logic
             let mainShare = currentTotal > 0 ? mainBal / currentTotal : 1;
             let tempShare = currentTotal > 0 ? tempBal / currentTotal : 0;
             if (currentTotal <= 0) { mainShare = 1; tempShare = 0; }
@@ -87,16 +85,11 @@ function processData(trades, transactions) {
 
             mainBal += profitMain;
             tempBal += profitTemp;
-            
-            mainNet += profitMain;
-            tempNet += profitTemp;
         }
 
         item.runningMain = mainBal;
         item.runningTemp = tempBal;
         item.runningTotal = mainBal + tempBal;
-        item.cumulativeMainNet = mainNet;
-        item.cumulativeTempNet = tempNet;
         item.cumulativeTotalDep = totalDep;
     });
 
@@ -110,54 +103,67 @@ function applyGlobalFilter() {
     currentFilter = filterVal;
 
     let filteredData = [];
-    let startMain = 0, startTemp = 0, startMainNet = 0, startTempNet = 0;
+    let startMain = 0, startTemp = 0;
 
     if (filterVal === 'all') {
         filteredData = processedTimeline;
     } else {
-        const firstIndex = processedTimeline.findIndex(d => d.wibDate.toISOString().slice(0, 7) === filterVal);
+        // REVISI 1: Filter Strict (Hanya bulan yang dipilih)
+        const startOfMonth = new Date(filterVal + "-01");
+        const endOfMonth = new Date(startOfMonth.getFullYear(), startOfMonth.getMonth() + 1, 0, 23, 59, 59);
+
+        // Cari indeks pertama yang masuk dalam bulan ini
+        const firstIndex = processedTimeline.findIndex(d => d.wibDate >= startOfMonth && d.wibDate <= endOfMonth);
+        
         if (firstIndex >= 0) {
-            filteredData = processedTimeline.slice(firstIndex);
+            // Ambil data hanya dalam range bulan ini
+            filteredData = processedTimeline.filter(d => d.wibDate >= startOfMonth && d.wibDate <= endOfMonth);
+            
+            // Ambil saldo awal dari item SEBELUM firstIndex
             if (firstIndex > 0) {
                 const prev = processedTimeline[firstIndex - 1];
                 startMain = prev.runningMain;
                 startTemp = prev.runningTemp;
-                startMainNet = prev.cumulativeMainNet;
-                startTempNet = prev.cumulativeTempNet;
             }
         }
     }
 
-    updateDashboard(filteredData, startMain, startTemp, startMainNet, startTempNet);
+    updateDashboard(filteredData, startMain, startTemp);
     updateReport(filteredData);
     renderHistoryList(filteredData);
 }
 
 // ================= DASHBOARD =================
-function updateDashboard(data, startMain, startTemp, startMainNet, startTempNet) {
+function updateDashboard(data, startMain, startTemp) {
     if (data.length === 0) return;
     const last = data[data.length - 1];
 
     setText('totalEquity', formatCurrency(last.runningTotal));
     setText('mainBalance', formatCurrency(last.runningMain));
     setText('tempBalance', formatCurrency(last.runningTemp));
-    
-    // Net Profit Period
-    const currentMainNet = last.cumulativeMainNet - startMainNet;
-    const currentTempNet = last.cumulativeTempNet - startTempNet;
-    setText('mainNetProfit', (currentMainNet>=0?'+':'')+formatCurrency(currentMainNet));
-    setText('tempNetProfit', (currentTempNet>=0?'+':'')+formatCurrency(currentTempNet));
 
-    // Growth Logic Fix: Total Net Profit / Total Deposit (Strictly Trading Performance)
-    // We calculate Net Profit for the filtered period / Total Deposit available
-    const periodNetProfit = currentMainNet + currentTempNet;
-    const totalDepositAllTime = last.cumulativeTotalDep; 
+    // REVISI 2: Restore Winrate & Net Profit (Period)
+    const trades = data.filter(d => d.category === 'TRADE');
+    const wins = trades.filter(d => d.val > 0).length;
+    const netProfit = trades.reduce((a,b) => a + b.val, 0);
+    const winRate = trades.length > 0 ? (wins / trades.length * 100) : 0;
+
+    setText('dashNetProfit', formatCurrency(netProfit));
+    document.getElementById('dashNetProfit').className = `text-sm font-bold mt-1 ${netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`; // REVISI 3: Color
+    setText('dashWinRate', winRate.toFixed(1) + "%");
+
+    // Net Profit Breakdown (Per Pocket)
+    // Estimasi sederhana berdasarkan proporsi saldo akhir (karena alokasi dinamis per trade susah dilacak mundur di filter period)
+    const totalBal = last.runningMain + last.runningTemp || 1;
+    const mainProp = last.runningMain / totalBal;
+    const tempProp = last.runningTemp / totalBal;
     
-    // Simple ROI: Profit / Deposit
-    let growth = 0;
-    if (totalDepositAllTime > 0) {
-        growth = (periodNetProfit / totalDepositAllTime) * 100;
-    }
+    // Tampilkan Share NetProfit (Visual saja)
+    setText('mainNetProfit', formatCurrency(netProfit * mainProp));
+    setText('tempNetProfit', formatCurrency(netProfit * tempProp));
+
+    // REVISI 8: GROWTH LOGIC (Summation of Monthly Growth)
+    let growth = calculateGrowth(currentFilter);
     
     const badge = document.getElementById('growthBadge');
     badge.innerText = (growth >= 0 ? "+" : "") + growth.toFixed(2) + "%";
@@ -166,6 +172,51 @@ function updateDashboard(data, startMain, startTemp, startMainNet, startTempNet)
     renderChart(data, startMain, startTemp);
 }
 
+function calculateGrowth(filter) {
+    // Helper: Group by Month
+    const months = {};
+    processedTimeline.forEach(d => {
+        const mKey = d.wibDate.toISOString().slice(0, 7);
+        if(!months[mKey]) months[mKey] = { trades: [], startEq: 0 };
+        if(d.category === 'TRADE') months[mKey].trades.push(d);
+    });
+
+    // Find Start Equity for each month
+    Object.keys(months).sort().forEach(mKey => {
+        const firstIdx = processedTimeline.findIndex(d => d.wibDate.toISOString().slice(0, 7) === mKey);
+        if(firstIdx > 0) {
+            months[mKey].startEq = processedTimeline[firstIdx-1].runningTotal;
+        } else {
+            // Month 1 start from 0 or initial deposit
+            // If strictly return on equity, define growth only after first deposit
+            months[mKey].startEq = 0; 
+        }
+    });
+
+    // Calculate Growth % Per Month
+    let totalGrowth = 0;
+    
+    // If Filter is specific month
+    if(filter !== 'all') {
+        const mData = months[filter];
+        if(!mData || mData.startEq === 0) return 0;
+        const net = mData.trades.reduce((a,b)=>a+b.val,0);
+        return (net / mData.startEq) * 100;
+    }
+
+    // If Filter ALL: Summation of all monthly growths
+    Object.keys(months).forEach(mKey => {
+        const mData = months[mKey];
+        if(mData.startEq > 0) {
+            const net = mData.trades.reduce((a,b)=>a+b.val,0);
+            totalGrowth += (net / mData.startEq) * 100;
+        }
+    });
+    
+    return totalGrowth;
+}
+
+// REVISI 4: CHART TUMPUK + TITIK TRANSAKSI
 function renderChart(data, startMain, startTemp) {
     const ctx = document.getElementById('equityChart').getContext('2d');
     if (chartInstance) chartInstance.destroy();
@@ -173,11 +224,22 @@ function renderChart(data, startMain, startTemp) {
     let labels = ["Start"];
     let dataMain = [startMain];
     let dataTemp = [startTemp];
+    
+    let pointRadiusMain = [0];
+    let pointColorMain = ['transparent'];
 
     data.forEach(d => {
         labels.push(d.wibDate.toLocaleDateString('id-ID', {day: 'numeric', month: 'short'}));
         dataMain.push(d.runningMain);
         dataTemp.push(d.runningTemp);
+
+        if(d.category === 'TRANSACTION') {
+            pointRadiusMain.push(4);
+            pointColorMain.push(d.data.type === 'Deposit' ? '#3b82f6' : '#facc15'); // Depo=Blue, WD=Yellow
+        } else {
+            pointRadiusMain.push(0);
+            pointColorMain.push('transparent');
+        }
     });
 
     chartInstance = new Chart(ctx, {
@@ -188,39 +250,32 @@ function renderChart(data, startMain, startTemp) {
                 {
                     label: 'Main',
                     data: dataMain,
-                    borderColor: '#10b981',
-                    backgroundColor: 'rgba(16, 185, 129, 0.2)',
-                    fill: 'origin',
+                    borderColor: '#3b82f6', // Blue
+                    backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                    fill: 'origin', // Stacked from bottom
                     tension: 0.1,
-                    pointRadius: 0 // Clean lines
+                    pointRadius: pointRadiusMain,
+                    pointBackgroundColor: pointColorMain,
+                    pointBorderColor: '#fff'
                 },
                 {
                     label: 'Temp',
                     data: dataTemp,
-                    borderColor: '#ffffff',
-                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                    fill: '-1',
+                    borderColor: '#facc15', // Yellow
+                    backgroundColor: 'rgba(250, 204, 21, 0.2)',
+                    fill: '-1', // Stacked on top of Main
                     tension: 0.1,
-                    pointRadius: 0 // Clean lines
+                    pointRadius: 0 // Clean line for temp
                 }
             ]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: {
-                tooltip: {
-                    mode: 'index',
-                    intersect: false,
-                    callbacks: {
-                        footer: (items) => 'Total Equity: ' + formatCurrency(items.reduce((a, b) => a + b.parsed.y, 0))
-                    }
-                },
-                legend: { display: false }
-            },
+            plugins: { legend: { display: false } },
             scales: {
                 x: { display: false },
-                y: { grid: {color: '#334155'}, ticks: {color: '#94a3b8'} }
+                y: { stacked: true, grid: {color: '#334155'}, ticks: {color: '#94a3b8'} }
             }
         }
     });
@@ -231,41 +286,49 @@ function updateReport(data) {
     const trades = data.filter(d => d.category === 'TRADE');
     const trans = data.filter(d => d.category === 'TRANSACTION');
 
-    // 1. Stats
     const totalDep = trans.filter(t => t.data.type === 'Deposit').reduce((a,b)=>a+b.val,0);
     const totalWith = trans.filter(t => t.data.type === 'Withdraw').reduce((a,b)=>a+Math.abs(b.val),0);
     
     const wins = trades.filter(t=>t.val>0);
     const losses = trades.filter(t=>t.val<0);
-    
     const grossProfit = wins.reduce((a,b)=>a+b.val,0);
     const grossLoss = losses.reduce((a,b)=>a+b.val,0);
     const netProfit = grossProfit + grossLoss;
     
-    // Growth (Period)
-    const growth = totalDep > 0 ? (netProfit / totalDep) * 100 : 0;
-
     const avgWin = wins.length ? grossProfit / wins.length : 0;
     const avgLoss = losses.length ? grossLoss / losses.length : 0;
-    const profitFactor = Math.abs(grossLoss) > 0 ? (grossProfit / Math.abs(grossLoss)).toFixed(2) : "∞";
-    const expPayoff = trades.length ? (netProfit / trades.length).toFixed(2) : "0.00";
+
+    // REVISI 7: Max Consecutive
+    let maxConsWin = 0, currConsWin = 0;
+    let maxConsLoss = 0, currConsLoss = 0;
+    trades.forEach(t => {
+        if(t.val > 0) { currConsWin++; currConsLoss=0; if(currConsWin>maxConsWin) maxConsWin=currConsWin; }
+        else { currConsLoss++; currConsWin=0; if(currConsLoss>maxConsLoss) maxConsLoss=currConsLoss; }
+    });
+
+    // Directional
+    const long = trades.filter(t=>t.data.type==='Buy');
+    const short = trades.filter(t=>t.data.type==='Sell');
+    const longWin = long.filter(t=>t.val>0).length;
+    const shortWin = short.filter(t=>t.val>0).length;
 
     setText('rptTotalDeposit', formatCurrency(totalDep));
     setText('rptTotalWithdraw', formatCurrency(totalWith));
-    setText('rptNetProfit', formatCurrency(netProfit));
-    setText('rptGrowth', (growth>=0?'+':'')+growth.toFixed(2)+'%');
     setText('rptGrossProfit', formatCurrency(grossProfit));
     setText('rptGrossLoss', formatCurrency(grossLoss));
     setText('rptAvgWin', formatCurrency(avgWin));
     setText('rptAvgLoss', formatCurrency(avgLoss));
-    setText('rptProfitFactor', profitFactor);
-    setText('rptExpectedPayoff', expPayoff);
+    setText('rptMaxConsWin', maxConsWin);
+    setText('rptMaxConsLoss', maxConsLoss);
 
-    // 2. Allocations (Deposit & Withdraw)
+    setText('longCount', long.length + " Trades");
+    setText('shortCount', short.length + " Trades");
+    setText('longWinRate', (long.length ? (longWin/long.length*100).toFixed(1) : 0) + "%");
+    setText('shortWinRate', (short.length ? (shortWin/short.length*100).toFixed(1) : 0) + "%");
+
     updateAllocBar('Deposit', trans, 'rptMainDep', 'rptTempDep', 'barMainDep', 'barTempDep');
-    updateAllocBar('Withdraw', trans, 'rptMainWD', 'rptTempWD', 'barMainWD', 'barTempWD');
-
-    // 3. Best/Worst Records
+    
+    // Best/Worst Records
     if (trades.length > 0) {
         const sortedProfit = [...trades].sort((a,b) => b.val - a.val);
         const sortedPips = [...trades].sort((a,b) => b.pips - a.pips);
@@ -273,6 +336,7 @@ function updateReport(data) {
         const bestList = document.getElementById('bestRecordsList');
         const worstList = document.getElementById('worstRecordsList');
         
+        // REVISI 2: Duplicate cards allowed if same transaction
         bestList.innerHTML = `
             ${renderHistoryCardHTML(sortedProfit[0])}
             ${renderHistoryCardHTML(sortedPips[0])}
@@ -289,7 +353,6 @@ function updateAllocBar(type, trans, idMain, idTemp, barMain, barTemp) {
     const main = subset.filter(t => t.data.allocation === 'MAIN').reduce((a,b)=>a+Math.abs(b.val),0);
     const temp = subset.filter(t => t.data.allocation === 'TEMP').reduce((a,b)=>a+Math.abs(b.val),0);
     const total = main + temp || 1;
-
     setText(idMain, formatCurrency(main));
     setText(idTemp, formatCurrency(temp));
     document.getElementById(barMain).style.width = (main/total*100) + "%";
@@ -306,55 +369,56 @@ function renderHistoryList(data) {
     });
 }
 
+// REVISI 5: Pips restored + Less cramped (p-4)
 function renderHistoryCardHTML(item) {
     if (!item) return '';
-    // Used by both History List and Report Best/Worst
     const clickAttr = `onclick="openEditModal('${item.id}')"`;
     
     if (item.category === 'TRADE') {
         const isWin = item.val >= 0;
         return `
-        <div class="cursor-pointer active:scale-95 transition-transform bg-slate-800 rounded-lg p-3 border-l-4 ${isWin ? 'border-emerald-500' : 'border-rose-500'} shadow-sm flex justify-between items-center relative overflow-hidden" ${clickAttr}>
-            <div class="absolute right-0 top-0 p-1 opacity-10 text-4xl font-bold">${item.data.type[0]}</div>
+        <div class="cursor-pointer active:scale-95 transition-transform bg-slate-800 rounded-xl p-4 border-l-4 ${isWin ? 'border-emerald-500' : 'border-rose-500'} shadow-sm flex justify-between items-center relative overflow-hidden" ${clickAttr}>
+            <div class="absolute right-0 top-0 p-1 opacity-10 text-5xl font-bold">${item.data.type[0]}</div>
             <div>
-                <div class="flex items-center gap-2 mb-1">
+                <div class="flex items-center gap-2 mb-2">
                     <span class="font-bold text-white text-sm">${item.data.type.toUpperCase()}</span>
-                    <span class="text-[10px] text-slate-400 bg-slate-900 px-1.5 rounded">${item.data.lots} Lot</span>
-                    <span class="text-[9px] px-1.5 rounded ${item.sessionClass}">${item.session}</span>
+                    <span class="text-[10px] text-slate-400 bg-slate-900 px-2 py-0.5 rounded">${item.data.lots} Lot</span>
+                    <span class="text-[9px] px-2 py-0.5 rounded ${item.sessionClass}">${item.session}</span>
                 </div>
                 <div class="text-[10px] text-slate-500 font-mono">
                     ${item.wibDate.toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})} WIB | ${item.wibDate.toLocaleDateString()}
                 </div>
             </div>
             <div class="text-right z-10">
-                <div class="font-bold text-base ${isWin ? 'text-emerald-400' : 'text-rose-400'}">
+                <div class="font-bold text-lg ${isWin ? 'text-emerald-400' : 'text-rose-400'}">
                     ${isWin ? '+' : ''}$${item.val.toFixed(2)}
                 </div>
-                <div class="text-[9px] text-slate-400">${item.pips} pips</div>
+                <div class="text-xs text-slate-400 mt-1">${item.pips} pips</div>
             </div>
         </div>`;
     } else {
         const isDep = item.data.type === 'Deposit';
         return `
-        <div class="cursor-pointer active:scale-95 transition-transform bg-slate-800 rounded-lg p-3 border-l-4 ${isDep ? 'border-blue-500' : 'border-yellow-500'} shadow-sm flex justify-between items-center" ${clickAttr}>
+        <div class="cursor-pointer active:scale-95 transition-transform bg-slate-800 rounded-xl p-4 border-l-4 ${isDep ? 'border-blue-500' : 'border-yellow-500'} shadow-sm flex justify-between items-center" ${clickAttr}>
             <div>
-                <div class="flex items-center gap-2 mb-1">
-                    <span class="font-bold ${isDep ? 'text-blue-400' : 'text-yellow-400'} text-xs">${item.data.type.toUpperCase()}</span>
-                    <span class="text-[9px] px-1.5 py-0.5 rounded border border-slate-700 text-slate-500 font-bold">${item.data.allocation}</span>
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="font-bold ${isDep ? 'text-blue-400' : 'text-yellow-400'} text-sm">${item.data.type.toUpperCase()}</span>
+                    <span class="text-[10px] px-2 py-0.5 rounded border border-slate-700 text-slate-500 font-bold">${item.data.allocation}</span>
                 </div>
                 <div class="text-[10px] text-slate-500">
-                    ${item.wibDate.toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})} WIB | ${item.wibDate.toLocaleDateString()}
+                    ${item.wibDate.toLocaleDateString()}
                 </div>
             </div>
             <div class="text-right">
-                <div class="font-bold text-sm text-white">$${Math.abs(item.val).toFixed(2)}</div>
+                <div class="font-bold text-lg text-white">$${Math.abs(item.val).toFixed(2)}</div>
             </div>
         </div>`;
     }
 }
 
-// ================= EDIT MODAL =================
-function openEditModal(id) {
+// ================= MODAL & EDIT (REVISI 6: Fix) =================
+// Fungsi ini harus ada di global scope agar onclick di HTML bisa akses
+window.openEditModal = function(id) {
     const item = processedTimeline.find(d => d.id === id);
     if (!item) return;
     editingId = id;
@@ -364,13 +428,9 @@ function openEditModal(id) {
 
     if (item.category === 'TRADE') {
         const d = item.data;
-        // Gross Profit Calculation (Net + Comm) for display
         const comm = d.lots * 10;
         const gross = (parseFloat(d.netProfit) + comm).toFixed(2);
-
-        // Pre-fill CloseTime trim "Z" or timezone info for input datetime-local
-        const formatTime = (iso) => new Date(iso).toISOString().slice(0, 16);
-
+        
         content.innerHTML = `
             <div class="space-y-3">
                 <div class="grid grid-cols-2 gap-3">
@@ -435,13 +495,19 @@ function openEditModal(id) {
         `;
     }
 
-    const modal = document.getElementById('modalEdit');
-    modal.classList.remove('opacity-0', 'pointer-events-none');
+    document.getElementById('modalEdit').classList.remove('opacity-0', 'pointer-events-none');
     document.body.classList.add('modal-active');
-}
+};
 
-function updateRecord() {
+window.closeModal = function() {
+    document.getElementById('modalEdit').classList.add('opacity-0', 'pointer-events-none');
+    document.body.classList.remove('modal-active');
+};
+
+window.updateRecord = function() {
     const category = document.getElementById('editCategory').value;
+    const btn = document.querySelector('#modalEdit button.bg-sky-600');
+    btn.innerText = "Saving...";
     
     if (category === 'TRADE') {
         const lots = parseFloat(document.getElementById('editLots').value);
@@ -449,7 +515,7 @@ function updateRecord() {
         const comm = lots * 10;
         const net = (gross - comm).toFixed(2);
 
-        const payload = {
+        submitData('editTrade', {
             id: editingId,
             type: document.getElementById('editType').value,
             lots: lots,
@@ -458,30 +524,24 @@ function updateRecord() {
             netProfit: net,
             openTime: document.getElementById('editOpenTime').value,
             closeTime: document.getElementById('editCloseTime').value
-        };
-        submitData('editTrade', payload);
+        });
     } else {
-        const payload = {
+        submitData('editTransaction', {
             id: editingId,
             type: document.getElementById('editType').value,
             amount: document.getElementById('editAmount').value,
             allocation: document.getElementById('editAlloc').value,
             date: document.getElementById('editDate').value
-        };
-        submitData('editTransaction', payload);
+        });
     }
-}
+};
 
-function deleteRecord() {
+window.deleteRecord = function() {
     if(!confirm("Delete this record permanently?")) return;
     const cat = document.getElementById('editCategory').value;
     submitData(cat === 'TRADE' ? 'deleteTrade' : 'deleteTransaction', { id: editingId });
-}
+};
 
-function closeModal() {
-    document.getElementById('modalEdit').classList.add('opacity-0', 'pointer-events-none');
-    document.body.classList.remove('modal-active');
-}
 
 // ================= HELPERS & SETUP =================
 function initClock() {
@@ -491,29 +551,15 @@ function initClock() {
         const m = now.getMinutes().toString().padStart(2, '0');
         const s = now.getSeconds().toString().padStart(2, '0');
         document.getElementById('clock').innerText = `${h}:${m}:${s} WIB`;
-        
         let greet = h < 12 ? "Good Morning" : h < 18 ? "Good Afternoon" : "Good Evening";
         document.getElementById('greeting').innerText = greet + ", Hanzel";
         
-        renderSessionTicker(h);
+        // Ticker (Simple)
+        const sessions = [{n:"PACIFIC",s:4,e:13,c:"text-slate-400"},{n:"ASIA",s:7,e:16,c:"text-yellow-400"},{n:"LONDON",s:14,e:23,c:"text-emerald-400"},{n:"NEW YORK",s:19,e:28,c:"text-blue-400"}];
+        let html=""; sessions.forEach(ses=>{ let on=(ses.n==="NEW YORK")?(h>=19||h<4):(h>=ses.s&&h<ses.e); html+=`<div class="px-2 py-1 rounded border ${on?'bg-slate-800 border-slate-600':'border-transparent opacity-30'} flex items-center gap-1 min-w-max"><div class="w-1.5 h-1.5 rounded-full ${on?'bg-current animate-pulse':'bg-slate-600'} ${ses.c}"></div><span class="text-[9px] font-bold ${ses.c}">${ses.n}</span></div>`});
+        document.getElementById('sessionTicker').innerHTML=html;
     };
-    setInterval(update, 1000);
-    update();
-}
-
-function renderSessionTicker(h) {
-    const sessions = [
-        { name: "PACIFIC", start: 4, end: 13, color: "text-slate-400" },
-        { name: "ASIA", start: 7, end: 16, color: "text-yellow-400" },
-        { name: "LONDON", start: 14, end: 23, color: "text-emerald-400" },
-        { name: "NEW YORK", start: 19, end: 28, color: "text-blue-400" }
-    ];
-    let html = "";
-    sessions.forEach(s => {
-        let isActive = (s.name === "NEW YORK") ? (h >= 19 || h < 4) : (h >= s.start && h < s.end);
-        html += `<div class="px-2 py-1 rounded border ${isActive ? 'bg-slate-800 border-slate-600' : 'border-transparent opacity-30'} flex items-center gap-1 min-w-max"><div class="w-1.5 h-1.5 rounded-full ${isActive ? 'bg-current animate-pulse' : 'bg-slate-600'} ${s.color}"></div><span class="text-[9px] font-bold ${s.color}">${s.name}</span></div>`;
-    });
-    document.getElementById('sessionTicker').innerHTML = html;
+    setInterval(update, 1000); update();
 }
 
 function setupMonthFilter() {
@@ -556,39 +602,21 @@ function setupInputs() {
         calcDisplay.innerHTML = `Comm: <b>$${comm.toFixed(2)}</b> | Net: <b class="${net >=0 ? 'text-emerald-400':'text-rose-400'}">$${net.toFixed(2)}</b>`;
     }
     if(lotsInput) { lotsInput.addEventListener('input', updateCalc); grossInput.addEventListener('input', updateCalc); }
-
-    document.getElementById('form-trade').addEventListener('submit', (e) => {
-        e.preventDefault();
-        const fd = new FormData(e.target);
-        const data = Object.fromEntries(fd.entries());
-        const comm = parseFloat(data.lots) * 10;
-        data.netProfit = (parseFloat(data.netProfit) - comm).toFixed(2);
-        submitData('addTrade', data);
-    });
-    document.getElementById('form-transaction').addEventListener('submit', (e) => {
-        e.preventDefault();
-        submitData('addTransaction', Object.fromEntries(new FormData(e.target).entries()));
-    });
+    document.getElementById('form-trade').addEventListener('submit', (e) => { e.preventDefault(); const fd = new FormData(e.target); const data = Object.fromEntries(fd.entries()); const comm = parseFloat(data.lots)*10; data.netProfit = (parseFloat(data.netProfit)-comm).toFixed(2); submitData('addTrade', data); });
+    document.getElementById('form-transaction').addEventListener('submit', (e) => { e.preventDefault(); submitData('addTransaction', Object.fromEntries(new FormData(e.target).entries())); });
 }
 
 function setText(id, val) { const el = document.getElementById(id); if(el) el.innerText = val; }
 function formatCurrency(num) { return '$' + num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
 async function fetchData() {
-    try {
-        const res = await fetch(`${API_URL}?action=getData`);
-        const json = await res.json();
-        if (json.status === 'success') { globalData = json.data; processData(globalData.trades, globalData.transactions); }
-    } catch (e) { console.error(e); }
+    try { const res = await fetch(`${API_URL}?action=getData`); const json = await res.json(); if (json.status === 'success') { globalData = json.data; processData(globalData.trades, globalData.transactions); } } catch (e) { console.error(e); }
+}
+async function submitData(action, payload) {
+    try { if (!payload.id) payload.id = 'ID-' + Date.now(); payload.action = action; await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) }); location.reload(); } catch (e) { alert("Error: " + e); location.reload(); }
 }
 
-async function submitData(action, payload) {
-    try {
-        if (!payload.id) payload.id = 'ID-' + Date.now();
-        payload.action = action;
-        const btn = document.querySelector('button[type="submit"]');
-        if(btn) { btn.disabled = true; btn.innerText = "Processing..."; }
-        await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
-        location.reload();
-    } catch (e) { alert("Error: " + e); location.reload(); }
-}
+// Make functions global for HTML onclick access
+window.switchView = switchView;
+window.switchForm = switchForm;
+window.applyGlobalFilter = applyGlobalFilter;

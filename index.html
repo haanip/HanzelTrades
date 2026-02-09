@@ -41,8 +41,7 @@
                 <option value="all">ALL TIME</option>
             </select>
         </div>
-        <div id="sessionTicker" class="flex gap-2 overflow-x-auto hide-scrollbar pb-1">
-            </div>
+        <div id="sessionTicker" class="flex gap-2 overflow-x-auto hide-scrollbar pb-1"></div>
     </header>
 
     <div class="pt-28 px-4 max-w-md mx-auto min-h-screen">
@@ -57,18 +56,18 @@
                 
                 <div class="grid grid-cols-2 gap-3">
                     <div class="bg-slate-900/60 p-3 rounded-xl border border-slate-800 relative overflow-hidden">
-                        <div class="absolute top-0 right-0 w-8 h-8 bg-emerald-500/10 rounded-bl-full -mr-1 -mt-1"></div>
+                        <div class="absolute top-0 right-0 w-8 h-8 bg-blue-500/10 rounded-bl-full -mr-1 -mt-1"></div>
                         <p class="text-[9px] text-slate-400 font-bold uppercase mb-1">MAIN POCKET</p>
-                        <p id="mainBalance" class="text-base font-bold text-emerald-400">$0.00</p>
+                        <p id="mainBalance" class="text-base font-bold text-blue-400">$0.00</p>
                         <div class="flex justify-between items-end mt-2">
                             <span class="text-[9px] text-slate-500">Net Profit</span>
                             <span id="mainNetProfit" class="text-[10px] font-bold text-white">$0.00</span>
                         </div>
                     </div>
                     <div class="bg-slate-900/60 p-3 rounded-xl border border-slate-800 relative overflow-hidden">
-                        <div class="absolute top-0 right-0 w-8 h-8 bg-white/10 rounded-bl-full -mr-1 -mt-1"></div>
+                        <div class="absolute top-0 right-0 w-8 h-8 bg-yellow-500/10 rounded-bl-full -mr-1 -mt-1"></div>
                         <p class="text-[9px] text-slate-400 font-bold uppercase mb-1">TEMP POCKET</p>
-                        <p id="tempBalance" class="text-base font-bold text-white">$0.00</p>
+                        <p id="tempBalance" class="text-base font-bold text-yellow-400">$0.00</p>
                         <div class="flex justify-between items-end mt-2">
                             <span class="text-[9px] text-slate-500">Net Profit</span>
                             <span id="tempNetProfit" class="text-[10px] font-bold text-white">$0.00</span>
@@ -77,15 +76,30 @@
                 </div>
             </div>
 
+            <div class="grid grid-cols-2 gap-3">
+                <div class="card-glass p-3 rounded-xl text-center">
+                    <p class="text-[9px] text-slate-500 uppercase font-bold">Net Profit</p>
+                    <p id="dashNetProfit" class="text-sm font-bold text-white mt-1">$0.00</p>
+                </div>
+                <div class="card-glass p-3 rounded-xl text-center">
+                    <p class="text-[9px] text-slate-500 uppercase font-bold">Win Rate</p>
+                    <p id="dashWinRate" class="text-sm font-bold text-blue-400 mt-1">0%</p>
+                </div>
+            </div>
+
             <div class="card-glass p-4 rounded-2xl shadow-lg">
                 <div class="h-64 w-full">
                     <canvas id="equityChart"></canvas>
+                </div>
+                <div class="flex justify-center gap-4 mt-2 text-[9px] text-slate-400">
+                    <div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-blue-500"></div> Depo</div>
+                    <div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-yellow-400"></div> WD</div>
                 </div>
             </div>
         </section>
 
         <section id="view-report" class="hidden space-y-4">
-            <h2 class="text-lg font-bold text-white mb-2">Performance Report</h2>
+            <h2 class="text-lg font-bold text-white mb-2">Advanced Report</h2>
             
             <div class="grid grid-cols-2 gap-3">
                 <div class="card-glass p-3 rounded-xl border-l-4 border-blue-500">
@@ -99,16 +113,6 @@
             </div>
 
             <div class="card-glass rounded-xl overflow-hidden divide-y divide-slate-800 text-xs">
-                <div class="grid grid-cols-2 divide-x divide-slate-800">
-                    <div class="p-3">
-                        <span class="text-[10px] text-slate-400 block uppercase">Net Profit</span>
-                        <span id="rptNetProfit" class="font-bold text-sm text-white">$0.00</span>
-                    </div>
-                    <div class="p-3">
-                        <span class="text-[10px] text-slate-400 block uppercase">Growth</span>
-                        <span id="rptGrowth" class="font-bold text-sm text-white">0%</span>
-                    </div>
-                </div>
                 <div class="grid grid-cols-2 divide-x divide-slate-800">
                     <div class="p-3 bg-emerald-900/10">
                         <span class="text-[10px] text-emerald-500 block uppercase">Gross Profit</span>
@@ -131,45 +135,45 @@
                 </div>
                 <div class="grid grid-cols-2 divide-x divide-slate-800">
                     <div class="p-3">
-                        <span class="text-[10px] text-slate-400 block uppercase">Profit Factor</span>
-                        <span id="rptProfitFactor" class="font-bold text-white">0.00</span>
+                        <span class="text-[10px] text-slate-400 block uppercase">Max Consec Wins</span>
+                        <span id="rptMaxConsWin" class="font-bold text-white">0</span>
                     </div>
                     <div class="p-3">
-                        <span class="text-[10px] text-slate-400 block uppercase">Expected Payoff</span>
-                        <span id="rptExpectedPayoff" class="font-bold text-white">0.00</span>
+                        <span class="text-[10px] text-slate-400 block uppercase">Max Consec Loss</span>
+                        <span id="rptMaxConsLoss" class="font-bold text-white">0</span>
                     </div>
                 </div>
             </div>
 
-            <div class="card-glass p-4 rounded-xl space-y-4">
-                <div>
-                    <h3 class="text-[10px] font-bold text-slate-500 uppercase mb-2">Deposit Allocation</h3>
-                    <div class="flex justify-between text-xs mb-1">
-                        <span class="text-slate-300">Main</span>
-                        <span id="rptMainDep" class="font-bold text-white">$0.00</span>
+            <div class="card-glass p-4 rounded-xl">
+                <h3 class="text-xs font-bold text-slate-300 uppercase mb-3">Directional Performance</h3>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="text-center">
+                        <p class="text-xs text-emerald-400 font-bold mb-1">LONG (Buy)</p>
+                        <p id="longWinRate" class="text-xl font-bold text-white">0%</p>
+                        <p id="longCount" class="text-[9px] text-slate-500">0 Trades</p>
                     </div>
-                    <div class="w-full bg-slate-800 h-1 rounded-full mb-2"><div id="barMainDep" class="bg-emerald-500 h-full w-0"></div></div>
-                    
-                    <div class="flex justify-between text-xs mb-1">
-                        <span class="text-slate-300">Temp</span>
-                        <span id="rptTempDep" class="font-bold text-white">$0.00</span>
+                    <div class="text-center border-l border-slate-700">
+                        <p class="text-xs text-rose-400 font-bold mb-1">SHORT (Sell)</p>
+                        <p id="shortWinRate" class="text-xl font-bold text-white">0%</p>
+                        <p id="shortCount" class="text-[9px] text-slate-500">0 Trades</p>
                     </div>
-                    <div class="w-full bg-slate-800 h-1 rounded-full"><div id="barTempDep" class="bg-amber-500 h-full w-0"></div></div>
                 </div>
-                <div>
-                    <h3 class="text-[10px] font-bold text-slate-500 uppercase mb-2">Withdraw Allocation</h3>
-                    <div class="flex justify-between text-xs mb-1">
-                        <span class="text-slate-300">Main</span>
-                        <span id="rptMainWD" class="font-bold text-white">$0.00</span>
-                    </div>
-                    <div class="w-full bg-slate-800 h-1 rounded-full mb-2"><div id="barMainWD" class="bg-blue-500 h-full w-0"></div></div>
-                    
-                    <div class="flex justify-between text-xs mb-1">
-                        <span class="text-slate-300">Temp</span>
-                        <span id="rptTempWD" class="font-bold text-white">$0.00</span>
-                    </div>
-                    <div class="w-full bg-slate-800 h-1 rounded-full"><div id="barTempWD" class="bg-yellow-500 h-full w-0"></div></div>
+            </div>
+
+            <div class="card-glass p-4 rounded-xl">
+                <h3 class="text-[10px] font-bold text-slate-500 uppercase mb-2">Deposit Allocation</h3>
+                <div class="flex justify-between text-xs mb-1">
+                    <span class="text-slate-300">Main</span>
+                    <span id="rptMainDep" class="font-bold text-white">$0.00</span>
                 </div>
+                <div class="w-full bg-slate-800 h-1 rounded-full mb-2"><div id="barMainDep" class="bg-blue-500 h-full w-0"></div></div>
+                
+                <div class="flex justify-between text-xs mb-1">
+                    <span class="text-slate-300">Temp</span>
+                    <span id="rptTempDep" class="font-bold text-white">$0.00</span>
+                </div>
+                <div class="w-full bg-slate-800 h-1 rounded-full"><div id="barTempDep" class="bg-yellow-500 h-full w-0"></div></div>
             </div>
 
             <div>
@@ -184,7 +188,7 @@
 
         <section id="view-history" class="hidden space-y-4">
             <h2 class="text-lg font-bold text-white">History <span class="text-xs font-normal text-slate-500">(Click to Edit)</span></h2>
-            <div id="historyList" class="space-y-3 pb-10"></div>
+            <div id="historyList" class="space-y-4 pb-10"></div>
         </section>
 
         <section id="view-input" class="hidden">
@@ -273,17 +277,11 @@
                 <h3 class="font-bold text-white">Edit Record</h3>
                 <button onclick="closeModal()" class="text-slate-400 hover:text-white">✕</button>
             </div>
-            
             <div class="p-4">
                 <div id="modalFormContent" class="space-y-4"></div>
-
                 <div class="flex gap-3 mt-6">
-                    <button onclick="updateRecord()" class="flex-1 bg-sky-600 hover:bg-sky-500 text-white font-bold py-3 rounded-xl transition">
-                        UPDATE
-                    </button>
-                    <button onclick="deleteRecord()" class="flex-1 bg-rose-900/50 hover:bg-rose-900 text-rose-400 border border-rose-800 font-bold py-3 rounded-xl transition">
-                        DELETE
-                    </button>
+                    <button onclick="updateRecord()" class="flex-1 bg-sky-600 hover:bg-sky-500 text-white font-bold py-3 rounded-xl transition">UPDATE</button>
+                    <button onclick="deleteRecord()" class="flex-1 bg-rose-900/50 hover:bg-rose-900 text-rose-400 border border-rose-800 font-bold py-3 rounded-xl transition">DELETE</button>
                 </div>
             </div>
         </div>
@@ -309,7 +307,7 @@
             <span class="text-[9px] font-bold">HISTORY</span>
         </button>
     </nav>
-
+    
     <script src="script.js"></script>
 </body>
 </html>
