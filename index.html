@@ -19,10 +19,14 @@
         .nav-btn.active { color: #38bdf8; }
         .nav-btn.active span { border-bottom: 2px solid #38bdf8; padding-bottom: 2px; }
         .card-glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
-        
-        /* Modal Animation */
         .modal { transition: opacity 0.25s ease; }
         body.modal-active { overflow-x: hidden; overflow-y: hidden !important; }
+
+        /* Session Gradients */
+        .sess-pacific { border-left: 4px solid #94a3b8; background: linear-gradient(90deg, rgba(148,163,184,0.1) 0%, rgba(15,23,42,0) 100%); }
+        .sess-asia { border-left: 4px solid #facc15; background: linear-gradient(90deg, rgba(250,204,21,0.1) 0%, rgba(15,23,42,0) 100%); }
+        .sess-london { border-left: 4px solid #10b981; background: linear-gradient(90deg, rgba(16,185,129,0.1) 0%, rgba(15,23,42,0) 100%); }
+        .sess-ny { border-left: 4px solid #3b82f6; background: linear-gradient(90deg, rgba(59,130,246,0.1) 0%, rgba(15,23,42,0) 100%); }
     </style>
 </head>
 <body class="pb-24 select-none bg-slate-950">
@@ -77,10 +81,6 @@
                 <div class="h-64 w-full">
                     <canvas id="equityChart"></canvas>
                 </div>
-                <div class="flex justify-center gap-4 mt-2 text-[9px] text-slate-400">
-                    <div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-blue-500"></div> Deposit</div>
-                    <div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-yellow-400"></div> Withdraw</div>
-                </div>
             </div>
         </section>
 
@@ -88,70 +88,97 @@
             <h2 class="text-lg font-bold text-white mb-2">Performance Report</h2>
             
             <div class="grid grid-cols-2 gap-3">
-                <div class="card-glass p-3 rounded-xl">
-                    <p class="text-[9px] text-slate-500 uppercase font-bold">Total Growth</p>
-                    <p id="rptGrowth" class="text-lg font-bold text-white mt-1">0.00%</p>
+                <div class="card-glass p-3 rounded-xl border-l-4 border-blue-500">
+                    <p class="text-[10px] text-slate-500 uppercase font-bold">Total Deposit</p>
+                    <p id="rptTotalDeposit" class="text-base font-bold text-blue-400 mt-1">$0.00</p>
                 </div>
-                <div class="card-glass p-3 rounded-xl">
-                    <p class="text-[9px] text-slate-500 uppercase font-bold">Net Profit</p>
-                    <p id="rptNetProfit" class="text-lg font-bold text-white mt-1">$0.00</p>
-                </div>
-            </div>
-
-            <div class="grid grid-cols-2 gap-3">
-                <div class="card-glass p-4 rounded-xl space-y-1 border-l-4 border-blue-500">
-                    <p class="text-[10px] text-slate-500 uppercase">Total Deposit</p>
-                    <p id="rptTotalDeposit" class="text-sm font-bold text-blue-400">$0.00</p>
-                </div>
-                <div class="card-glass p-4 rounded-xl space-y-1 border-l-4 border-yellow-500">
-                    <p class="text-[10px] text-slate-500 uppercase">Total Withdraw</p>
-                    <p id="rptTotalWithdraw" class="text-sm font-bold text-yellow-400">$0.00</p>
+                <div class="card-glass p-3 rounded-xl border-l-4 border-yellow-500">
+                    <p class="text-[10px] text-slate-500 uppercase font-bold">Total Withdraw</p>
+                    <p id="rptTotalWithdraw" class="text-base font-bold text-yellow-400 mt-1">$0.00</p>
                 </div>
             </div>
 
-            <div class="card-glass p-4 rounded-xl">
-                <h3 class="text-xs font-bold text-slate-300 uppercase mb-3">Withdraw Allocation</h3>
-                <div class="space-y-3">
-                    <div>
-                        <div class="flex justify-between text-xs mb-1">
-                            <span class="text-slate-400">Main Pocket</span>
-                            <span id="rptMainWD" class="font-bold text-white">$0.00</span>
-                        </div>
-                        <div class="w-full bg-slate-800 h-1 rounded-full"><div id="barMainWD" class="bg-blue-500 h-full w-0"></div></div>
+            <div class="card-glass rounded-xl overflow-hidden divide-y divide-slate-800 text-xs">
+                <div class="grid grid-cols-2 divide-x divide-slate-800">
+                    <div class="p-3">
+                        <span class="text-[10px] text-slate-400 block uppercase">Net Profit</span>
+                        <span id="rptNetProfit" class="font-bold text-sm text-white">$0.00</span>
                     </div>
-                    <div>
-                        <div class="flex justify-between text-xs mb-1">
-                            <span class="text-slate-400">Temp Pocket</span>
-                            <span id="rptTempWD" class="font-bold text-white">$0.00</span>
-                        </div>
-                        <div class="w-full bg-slate-800 h-1 rounded-full"><div id="barTempWD" class="bg-yellow-500 h-full w-0"></div></div>
+                    <div class="p-3">
+                        <span class="text-[10px] text-slate-400 block uppercase">Growth</span>
+                        <span id="rptGrowth" class="font-bold text-sm text-white">0%</span>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 divide-x divide-slate-800">
+                    <div class="p-3 bg-emerald-900/10">
+                        <span class="text-[10px] text-emerald-500 block uppercase">Gross Profit</span>
+                        <span id="rptGrossProfit" class="font-bold text-emerald-400">$0.00</span>
+                    </div>
+                    <div class="p-3 bg-rose-900/10">
+                        <span class="text-[10px] text-rose-500 block uppercase">Gross Loss</span>
+                        <span id="rptGrossLoss" class="font-bold text-rose-400">$0.00</span>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 divide-x divide-slate-800">
+                    <div class="p-3">
+                        <span class="text-[10px] text-slate-400 block uppercase">Avg Win</span>
+                        <span id="rptAvgWin" class="font-bold text-emerald-400">$0.00</span>
+                    </div>
+                    <div class="p-3">
+                        <span class="text-[10px] text-slate-400 block uppercase">Avg Loss</span>
+                        <span id="rptAvgLoss" class="font-bold text-rose-400">$0.00</span>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 divide-x divide-slate-800">
+                    <div class="p-3">
+                        <span class="text-[10px] text-slate-400 block uppercase">Profit Factor</span>
+                        <span id="rptProfitFactor" class="font-bold text-white">0.00</span>
+                    </div>
+                    <div class="p-3">
+                        <span class="text-[10px] text-slate-400 block uppercase">Expected Payoff</span>
+                        <span id="rptExpectedPayoff" class="font-bold text-white">0.00</span>
                     </div>
                 </div>
             </div>
 
-            <div class="card-glass p-4 rounded-xl">
-                <h3 class="text-xs font-bold text-slate-300 uppercase mb-3">Directional Performance</h3>
-                <div class="grid grid-cols-2 gap-4">
-                    <div class="text-center">
-                        <p class="text-xs text-emerald-400 font-bold mb-1">LONG (Buy)</p>
-                        <p id="longWinRate" class="text-xl font-bold text-white">0%</p>
-                        <p id="longCount" class="text-[9px] text-slate-500">0 Trades</p>
+            <div class="card-glass p-4 rounded-xl space-y-4">
+                <div>
+                    <h3 class="text-[10px] font-bold text-slate-500 uppercase mb-2">Deposit Allocation</h3>
+                    <div class="flex justify-between text-xs mb-1">
+                        <span class="text-slate-300">Main</span>
+                        <span id="rptMainDep" class="font-bold text-white">$0.00</span>
                     </div>
-                    <div class="text-center border-l border-slate-700">
-                        <p class="text-xs text-rose-400 font-bold mb-1">SHORT (Sell)</p>
-                        <p id="shortWinRate" class="text-xl font-bold text-white">0%</p>
-                        <p id="shortCount" class="text-[9px] text-slate-500">0 Trades</p>
+                    <div class="w-full bg-slate-800 h-1 rounded-full mb-2"><div id="barMainDep" class="bg-emerald-500 h-full w-0"></div></div>
+                    
+                    <div class="flex justify-between text-xs mb-1">
+                        <span class="text-slate-300">Temp</span>
+                        <span id="rptTempDep" class="font-bold text-white">$0.00</span>
                     </div>
+                    <div class="w-full bg-slate-800 h-1 rounded-full"><div id="barTempDep" class="bg-amber-500 h-full w-0"></div></div>
+                </div>
+                <div>
+                    <h3 class="text-[10px] font-bold text-slate-500 uppercase mb-2">Withdraw Allocation</h3>
+                    <div class="flex justify-between text-xs mb-1">
+                        <span class="text-slate-300">Main</span>
+                        <span id="rptMainWD" class="font-bold text-white">$0.00</span>
+                    </div>
+                    <div class="w-full bg-slate-800 h-1 rounded-full mb-2"><div id="barMainWD" class="bg-blue-500 h-full w-0"></div></div>
+                    
+                    <div class="flex justify-between text-xs mb-1">
+                        <span class="text-slate-300">Temp</span>
+                        <span id="rptTempWD" class="font-bold text-white">$0.00</span>
+                    </div>
+                    <div class="w-full bg-slate-800 h-1 rounded-full"><div id="barTempWD" class="bg-yellow-500 h-full w-0"></div></div>
                 </div>
             </div>
 
             <div>
                 <h3 class="text-xs font-bold text-slate-300 uppercase mb-3">Best Records</h3>
-                <div id="bestRecordsList" class="space-y-2"></div>
+                <div id="bestRecordsList" class="space-y-3"></div>
             </div>
              <div>
                 <h3 class="text-xs font-bold text-slate-300 uppercase mb-3">Worst Records</h3>
-                <div id="worstRecordsList" class="space-y-2"></div>
+                <div id="worstRecordsList" class="space-y-3"></div>
             </div>
         </section>
 
@@ -173,37 +200,37 @@
                 <div class="grid grid-cols-2 gap-4">
                     <div class="space-y-1">
                         <label class="text-[10px] uppercase text-slate-500 font-bold">Type</label>
-                        <select name="type" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white focus:border-sky-500 outline-none">
+                        <select name="type" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white outline-none">
                             <option value="Buy">Buy 🟢</option>
                             <option value="Sell">Sell 🔴</option>
                         </select>
                     </div>
                     <div class="space-y-1">
                         <label class="text-[10px] uppercase text-slate-500 font-bold">Lots</label>
-                        <input type="number" step="0.01" name="lots" id="inputLots" placeholder="0.01" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white focus:border-sky-500 outline-none" required>
+                        <input type="number" step="0.01" name="lots" id="inputLots" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white outline-none" required>
                     </div>
                 </div>
                 <div class="grid grid-cols-2 gap-4">
                     <div class="space-y-1">
                         <label class="text-[10px] uppercase text-slate-500 font-bold">Entry</label>
-                        <input type="number" step="any" name="entryPrice" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white focus:border-sky-500 outline-none" required>
+                        <input type="number" step="any" name="entryPrice" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white outline-none" required>
                     </div>
                     <div class="space-y-1">
                         <label class="text-[10px] uppercase text-slate-500 font-bold">Exit</label>
-                        <input type="number" step="any" name="exitPrice" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white focus:border-sky-500 outline-none" required>
+                        <input type="number" step="any" name="exitPrice" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white outline-none" required>
                     </div>
                 </div>
                 <div class="space-y-1">
                     <label class="text-[10px] uppercase text-slate-500 font-bold">Open Time (Server)</label>
-                    <input type="datetime-local" name="openTime" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white focus:border-sky-500 outline-none" required>
+                    <input type="datetime-local" name="openTime" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white outline-none" required>
                 </div>
                 <div class="space-y-1">
                     <label class="text-[10px] uppercase text-slate-500 font-bold">Close Time (Server)</label>
-                    <input type="datetime-local" name="closeTime" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white focus:border-sky-500 outline-none" required>
+                    <input type="datetime-local" name="closeTime" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white outline-none" required>
                 </div>
                 <div class="space-y-1">
                     <label class="text-[10px] uppercase text-slate-500 font-bold">Gross Profit ($)</label>
-                    <input type="number" step="any" name="netProfit" id="inputGross" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white focus:border-sky-500 outline-none font-bold text-lg" required>
+                    <input type="number" step="any" name="netProfit" id="inputGross" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white outline-none font-bold text-lg" required>
                     <p id="calcCommission" class="text-[10px] text-rose-400 text-right mt-1">Comm: $0.00 | Net: $0.00</p>
                 </div>
                 <button type="submit" id="btn-save-trade" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-xl shadow-lg mt-4">Save Trade</button>
@@ -212,24 +239,24 @@
             <form id="form-transaction" class="space-y-4 hidden">
                 <div class="space-y-1">
                     <label class="text-[10px] uppercase text-slate-500 font-bold">Date (Server)</label>
-                    <input type="datetime-local" name="date" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white focus:border-sky-500 outline-none" required>
+                    <input type="datetime-local" name="date" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white outline-none" required>
                 </div>
                 <div class="grid grid-cols-2 gap-4">
                     <div class="space-y-1">
                         <label class="text-[10px] uppercase text-slate-500 font-bold">Type</label>
-                        <select name="type" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white focus:border-sky-500 outline-none">
+                        <select name="type" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white outline-none">
                             <option value="Deposit">Deposit</option>
                             <option value="Withdraw">Withdraw</option>
                         </select>
                     </div>
                     <div class="space-y-1">
                         <label class="text-[10px] uppercase text-slate-500 font-bold">Amount ($)</label>
-                        <input type="number" step="any" name="amount" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white focus:border-sky-500 outline-none" required>
+                        <input type="number" step="any" name="amount" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white outline-none" required>
                     </div>
                 </div>
                 <div class="space-y-1">
                     <label class="text-[10px] uppercase text-slate-500 font-bold">Allocation</label>
-                    <select name="allocation" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white focus:border-sky-500 outline-none">
+                    <select name="allocation" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-white outline-none">
                         <option value="MAIN">MAIN</option>
                         <option value="TEMP">TEMP</option>
                     </select>
@@ -243,22 +270,19 @@
         <div class="modal-overlay absolute w-full h-full bg-black/80 backdrop-blur-sm" onclick="closeModal()"></div>
         <div class="modal-container bg-slate-900 w-11/12 max-w-md mx-auto rounded-2xl shadow-2xl z-50 overflow-y-auto max-h-[90vh] border border-slate-700">
             <div class="p-4 border-b border-slate-800 flex justify-between items-center">
-                <h3 class="font-bold text-white">Manage Record</h3>
+                <h3 class="font-bold text-white">Edit Record</h3>
                 <button onclick="closeModal()" class="text-slate-400 hover:text-white">✕</button>
             </div>
+            
             <div class="p-4">
-                <p class="text-xs text-slate-400 mb-4">You can delete this record permanently. Editing is coming soon in V2.</p>
-                <input type="hidden" id="deleteId">
-                <input type="hidden" id="deleteType"> <div class="bg-slate-800 p-3 rounded-lg mb-4 text-center">
-                     <p id="modalDetail" class="text-sm font-mono text-white">Details...</p>
-                </div>
+                <div id="modalFormContent" class="space-y-4"></div>
 
-                <div class="flex gap-3">
-                    <button onclick="deleteRecord()" class="flex-1 bg-rose-600 hover:bg-rose-500 text-white font-bold py-3 rounded-xl transition">
-                        DELETE
+                <div class="flex gap-3 mt-6">
+                    <button onclick="updateRecord()" class="flex-1 bg-sky-600 hover:bg-sky-500 text-white font-bold py-3 rounded-xl transition">
+                        UPDATE
                     </button>
-                    <button onclick="closeModal()" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded-xl transition">
-                        CANCEL
+                    <button onclick="deleteRecord()" class="flex-1 bg-rose-900/50 hover:bg-rose-900 text-rose-400 border border-rose-800 font-bold py-3 rounded-xl transition">
+                        DELETE
                     </button>
                 </div>
             </div>
